@@ -1,0 +1,164 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (matches auth.uid)
+    // Fields:
+    //   - uid: string (matches auth.uid)
+    //   - username: string (user handle)
+    //   - displayName: string (profile display name)
+    //   - email: string (user email address)
+    //   - avatarUrl: string (profile photo URL)
+    //   - bannerUrl: string (profile header banner URL)
+    //   - bio: string (user biography text)
+    //   - followersCount: number (count of followers)
+    //   - followingCount: number (count of following accounts)
+    //   - postsCount: number (count of created posts)
+    //   - createdAt: timestamp / number (account creation time)
+    //   - updatedAt: timestamp / number (last profile update time)
+    //
+    // Collection: follows
+    // Document ID: followId (${followerId}_${followingId})
+    // Fields:
+    //   - followerId: string (UID of follower)
+    //   - followingId: string (UID of target user being followed)
+    //   - createdAt: timestamp / number
+    //
+    // Collection: posts
+    // Document ID: postId
+    // Fields:
+    //   - authorId: string (matches creator's auth.uid)
+    //   - author: map (author profile preview)
+    //   - type: string ('long_video' | 'short_video' | 'gif' | 'image')
+    //   - title: string (post title)
+    //   - description: string (post description text)
+    //   - tags: list of strings
+    //   - mediaUrl: string (URL to media content)
+    //   - thumbnailUrl: string (optional preview image)
+    //   - likesCount: number
+    //   - viewsCount: number
+    //   - commentsCount: number
+    //   - sharesCount: number
+    //   - createdAt: timestamp / number
+    //
+    // Subcollection: posts/{postId}/likes/{userId}
+    // Document ID: userId (matches auth.uid)
+    //
+    // Subcollection: posts/{postId}/comments/{commentId}
+    // Document ID: commentId
+    // Fields:
+    //   - postId: string
+    //   - authorId: string (matches creator's auth.uid)
+    //   - author: map (author profile preview)
+    //   - content: string (comment text)
+    //   - mediaUrl: string (optional media attachment)
+    //   - mediaType: string (optional media type)
+    //   - parentId: string (optional parent comment ID for replies)
+    //   - likesCount: number
+    //   - createdAt: timestamp / number
+    //
+    // Collection: chats
+    // Document ID: chatId
+    // Fields:
+    //   - creatorId: string
+    //   - adminIds: list of strings
+    //   - memberIds: list of strings
+    //   - members: map of user profiles
+    //   - name: string
+    //   - iconUrl: string
+    //   - lastMessage: map (preview of most recent message)
+    //   - lastMessageAt: timestamp / number
+    //   - createdAt: timestamp / number
+    //
+    // Subcollection: chats/{chatId}/messages/{messageId}
+    // Document ID: messageId
+    // Fields:
+    //   - chatId: string
+    //   - senderId: string
+    //   - sender: map
+    //   - content: string
+    //   - mediaUrl: string
+    //   - mediaType: string
+    //   - sharedPost: map
+    //   - readBy: list of string UIDs
+    //   - createdAt: timestamp / number
+    //
+    // ===============================================================
+
+    // Default deny all access at the root
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // 1. Users collection
+    // - Public read for profiles and user handles
+    // - Authenticated users can create their own document (request.auth.uid == userId)
+    // - Authenticated users can update profiles (owner updates profile data, others update follower count)
+    // - Delete is disabled to preserve user references
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // 2. Follows collection
+    // - Public read
+    // - Follower can create/delete follow relationships
+    match /follows/{followId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.followerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.followerId == request.auth.uid;
+    }
+
+    // 3. Posts collection
+    // - Public read
+    // - Authenticated author can create and delete
+    // - Authenticated users can update counters (likesCount, viewsCount, commentsCount)
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+
+      // Subcollection: likes
+      match /likes/{userId} {
+        allow read: if true;
+        allow write: if isAuthenticated() && request.auth.uid == userId;
+      }
+
+      // Subcollection: comments
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+      }
+    }
+
+    // 4. Chats collection & Messages subcollection
+    // - Authenticated users can read and write chats and messages
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+  }
+}

@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Public read for uploaded videos, images, and GIFs
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 200 * 1024 * 1024; // 200MB max
+    }
+    
+    // Rich comments media (images & GIFs)
+    match /comments/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 20 * 1024 * 1024; // 20MB max
+    }
+    
+    // Group chats media attachments
+    match /chats/{chatId}/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 30 * 1024 * 1024; // 30MB max
+    }
+    
+    // Avatars & Banners
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 10 * 1024 * 1024; // 10MB max
+    }
+  }
+}
